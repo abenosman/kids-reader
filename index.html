@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#4f46e5">
+<title>Kids Reader</title>
+<style>
+  :root{--bg:#fff8e7;--card:#fff;--ink:#2b2b3a;--main:#4f46e5;--accent:#ff9f1c;--hl:#ffe08a}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:system-ui,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh}
+  header{background:var(--main);color:#fff;padding:14px 16px;text-align:center;font-size:1.3rem;font-weight:700}
+  .wrap{max-width:720px;margin:0 auto;padding:12px}
+  .tabs{display:flex;gap:8px;margin-bottom:10px}
+  .tab{flex:1;padding:12px 4px;border:0;border-radius:14px;background:#e5e7eb;font-size:1.05rem;font-weight:600;color:var(--ink)}
+  .tab.on{background:var(--accent);color:#fff}
+  select,textarea,button{font:inherit}
+  select{width:100%;padding:12px;border-radius:12px;border:2px solid #ddd;background:#fff;margin-bottom:10px}
+  .card{background:var(--card);border-radius:18px;padding:18px;box-shadow:0 3px 10px rgba(0,0,0,.08);line-height:2.1;font-size:1.6rem}
+  .card.rtl{direction:rtl;text-align:right;font-size:1.9rem;line-height:2.4}
+  .w{display:inline-block;padding:0 4px;border-radius:8px;cursor:pointer}
+  .w:active,.w.say{background:var(--hl)}
+  .bar{display:flex;gap:8px;margin:12px 0;align-items:center;flex-wrap:wrap}
+  .btn{padding:12px 16px;border:0;border-radius:12px;background:var(--main);color:#fff;font-weight:600;font-size:1rem}
+  .btn.alt{background:#10b981}
+  .btn.gray{background:#6b7280}
+  label{font-size:.95rem}
+  input[type=range]{flex:1;min-width:120px}
+  textarea{width:100%;min-height:110px;padding:10px;border-radius:12px;border:2px solid #ddd;margin-top:8px}
+  .hint{font-size:.85rem;color:#666;margin-top:6px}
+  .warn{background:#fff3cd;border-radius:10px;padding:8px 10px;font-size:.9rem;margin-top:8px;display:none}
+  .big{font-size:1.1rem}
+  .w.say{outline:3px solid var(--main)}
+  .dot{width:42px;height:42px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 2px #bbb;font-size:1.1rem;padding:0}
+  .dot.sel{box-shadow:0 0 0 3px var(--main)}
+  .w.ok{border-bottom:4px solid #22c55e}
+  .w.bad{border-bottom:4px solid #ef4444}
+  .w.fixed{border-bottom:4px solid #f59e0b}
+  .w.next{outline:2px dashed var(--main)}
+  #hear{min-height:1.4em;font-size:1rem;color:#333}
+  #listenSel{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);display:none;z-index:10;
+    padding:16px 26px;border:0;border-radius:40px;background:#ef4444;color:#fff;font-weight:700;font-size:1.15rem;
+    box-shadow:0 6px 18px rgba(0,0,0,.35)}
+  .card{user-select:text;-webkit-user-select:text}
+</style>
+</head>
+<body>
+<header>📖 Kids Reader · Tap a word to hear it</header>
+<div class="wrap">
+  <div class="tabs">
+    <button class="tab on" data-l="en">English</button>
+    <button class="tab" data-l="fr">Français</button>
+    <button class="tab" data-l="ar">العربية</button>
+  </div>
+  <select id="story"></select>
+  <div class="bar" id="hlbar">
+    <button class="btn gray" id="hlMode">🖍 Highlighter: OFF</button>
+    <button class="dot" data-c="#fde047" style="background:#fde047"></button>
+    <button class="dot" data-c="#86efac" style="background:#86efac"></button>
+    <button class="dot" data-c="#f9a8d4" style="background:#f9a8d4"></button>
+    <button class="dot" data-c="" style="background:#fff">🧽</button>
+    <button class="btn gray" id="hlClear">Clear all</button>
+  </div>
+  <div id="text" class="card"></div>
+  <div class="bar">
+    <button class="btn alt" id="readAll">▶ Read all</button>
+    <button class="btn gray" id="stop">■ Stop</button>
+    <label>🐢<input type="range" id="rate" min="0.4" max="1.1" step="0.05" value="0.7">🐇</label>
+  </div>
+  <div class="bar">
+    <span>Speed:</span>
+    <button class="btn gray sp" data-r="0.5">0.5×</button>
+    <button class="btn gray sp" data-r="0.7">0.7×</button>
+    <button class="btn gray sp" data-r="1">1×</button>
+  </div>
+  <div class="bar">
+    <button class="btn" id="listenBtn" style="background:#ef4444">🎤 I read, you listen</button>
+  </div>
+  <div id="hear"></div>
+  <div class="warn" id="warn"></div>
+  <details>
+    <summary class="big">➕ Use my own text</summary>
+    <textarea id="custom" placeholder="Paste or type a text here…"></textarea>
+    <button class="btn" id="useCustom" style="margin-top:8px">Use this text</button>
+  </details>
+  <p class="hint">Tip: tap a word to hear it. To hear a phrase, long-press a word, drag the handles over the phrase, then press the red 🔊 button.</p>
+  <button id="listenSel">🔊 Listen to selection</button>
+</div>
+
+<script>
+const STORIES = {
+  en: [
+    {t:"The Little Fox", x:"A little fox lived near a green forest. Every morning, he ran to the river to drink fresh water. One day, he met a friendly rabbit. They played hide and seek under the tall trees. When the sun went down, they said goodbye and promised to meet again tomorrow."},
+    {t:"The Rainy Day", x:"It was a rainy day, so Sara stayed at home. She drew a big yellow sun on her paper. Her brother painted a rainbow with seven colours. Soon the clouds went away, and they ran outside to jump in the puddles."}
+  ],
+  fr: [
+    {t:"Le petit lapin", x:"Le petit lapin habite dans une maison près de la forêt. Chaque matin, il mange une carotte bien croquante. Aujourd'hui, il rencontre un oiseau bleu. Ils chantent ensemble une jolie chanson. Le soir, le lapin rentre chez lui et s'endort tout content."},
+    {t:"La pluie", x:"Il pleut sur la ville. Léa met son manteau rouge et ses grandes bottes. Elle saute dans les flaques avec son chien. Après la pluie, un bel arc-en-ciel apparaît dans le ciel."}
+  ],
+  ar: [
+    {t:"القِطَّةُ الصَّغِيرَةُ", x:"القِطَّةُ الصَّغِيرَةُ تُحِبُّ اللَّعِبَ فِي الحَدِيقَةِ. كُلَّ صَبَاحٍ تَرَى الفَرَاشَاتِ المُلَوَّنَةَ وَتَرْكُضُ خَلْفَهَا. ثُمَّ تَعُودُ إِلَى البَيْتِ وَتَشْرَبُ الحَلِيبَ وَتَنَامُ."},
+    {t:"الوَلَدُ وَالكِتَابُ", x:"يَقْرَأُ الوَلَدُ كِتَابًا جَمِيلًا كُلَّ مَسَاءٍ. يَتَعَلَّمُ كَلِمَاتٍ جَدِيدَةً وَيَحْكِي لِأُمِّهِ القِصَّةَ. تَبْتَسِمُ الأُمُّ وَتَقُولُ: أَنْتَ قَارِئٌ ذَكِيٌّ."}
+  ]
+};
+const LOCALES = {en:["en-GB","en-UK","en"], fr:["fr-FR","fr-CA"], ar:["ar-SA","ar","ar-EG"]};
+
+if (!("speechSynthesis" in window)){
+  window.speechSynthesis = {cancel(){},speak(){},getVoices(){return []}};
+  window.__noTTS = true;
+}
+let lang = "en", current = "", voices = [], hlOn = false, hlColor = "#fde047";
+const $ = id => document.getElementById(id);
+
+function loadVoices(){ voices = speechSynthesis.getVoices(); checkVoice(); }
+if ("speechSynthesis" in window){
+  loadVoices();
+  speechSynthesis.onvoiceschanged = loadVoices;
+}
+
+function pickVoice(l){
+  const pref = LOCALES[l];
+  for (const loc of pref){
+    const v = voices.find(v => v.lang.replace("_","-").toLowerCase() === loc.toLowerCase());
+    if (v) return v;
+  }
+  return voices.find(v => v.lang.toLowerCase().startsWith(l)) || null; // any voice of that language as a last resort
+}
+
+function checkVoice(){
+  const w = $("warn");
+  if (window.__noTTS){ w.style.display="block"; w.textContent="⚠️ This viewer has no speech. Save the file, then open it in Chrome (or Firefox) on your phone."; return; }
+  if (voices.length && !pickVoice(lang)){
+    w.style.display="block";
+    w.textContent = lang==="ar"
+      ? "No Arabic voice found. On Android: Settings → System → Languages → Text-to-speech output → install Arabic voice data (Google TTS)."
+      : "No voice found for this language. Install it in Android Settings → Text-to-speech output.";
+  } else if (lang==="en" && voices.length && !voices.some(v=>v.lang.replace("_","-").toLowerCase()==="en-gb")){
+    w.style.display="block";
+    w.textContent="No British English voice found, using another English voice. Install English (UK) in Android Settings → Text-to-speech output.";
+  } else w.style.display="none";
+}
+
+function speak(text, el, onend){
+  if (!("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  const v = pickVoice(lang);
+  u.lang = v ? v.lang : LOCALES[lang][0];
+  if (v) u.voice = v;
+  u.rate = parseFloat($("rate").value);
+  u.onstart = () => el && el.classList.add("say");
+  u.onend = u.onerror = () => { el && el.classList.remove("say"); onend && onend(); };
+  speechSynthesis.speak(u);
+}
+
+function cleanWord(s){
+  // keep letters, marks (Arabic diacritics/accents), apostrophes & hyphens inside
+  return s.replace(/^[^\p{L}\p{M}\p{N}]+|[^\p{L}\p{M}\p{N}]+$/gu,"");
+}
+
+function render(){
+  const box = $("text");
+  box.className = "card" + (lang==="ar" ? " rtl" : "");
+  box.dir = lang==="ar" ? "rtl" : "ltr";
+  stopListen();
+  box.innerHTML = "";
+  current.split(/(\s+)/).forEach(tok=>{
+    if (!tok) return;
+    if (/^\s+$/.test(tok)){ box.appendChild(document.createTextNode(tok)); return; }
+    const sp = document.createElement("span");
+    sp.className = "w"; sp.textContent = tok;
+    sp.onclick = () => {
+      if (hlOn){ paint(sp, hlColor); return; }
+      const w = cleanWord(tok); if (w) speak(w, sp);
+    };
+    box.appendChild(sp);
+  });
+}
+
+function readAll(){
+  stopListen();
+  const words = [...document.querySelectorAll(".w")];
+  speechSynthesis.cancel();
+  let i = 0, stopped = false;
+  $("stop").onclick = () => { stopped = true; speechSynthesis.cancel(); words.forEach(w=>w.classList.remove("say")); };
+  (function next(){
+    if (stopped || i >= words.length) return;
+    const el = words[i++], w = cleanWord(el.textContent);
+    if (!w) return next();
+    speak(w, el, next);
+  })();
+}
+
+function fillStories(){
+  const s = $("story"); s.innerHTML = "";
+  STORIES[lang].forEach((st,i)=>{ const o=document.createElement("option"); o.value=i; o.textContent=st.t; s.appendChild(o); });
+  current = STORIES[lang][0].x; render();
+}
+
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll(".tab").forEach(t=>t.classList.remove("on"));
+  b.classList.add("on"); lang = b.dataset.l;
+  document.documentElement.lang = lang;
+  speechSynthesis.cancel(); fillStories(); checkVoice();
+});
+$("story").onchange = e => { current = STORIES[lang][e.target.value].x; render(); };
+$("readAll").onclick = readAll;
+$("stop").onclick = () => speechSynthesis.cancel();
+$("useCustom").onclick = () => { const t = $("custom").value.trim(); if (t){ current = t; render(); } };
+
+// ---- listen while the kid reads, and correct wrong words ----
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const REC_LANG = {en:"en-GB", fr:"fr-FR", ar:"ar-SA"};
+let rec = null, listening = false, pausedForTTS = false, ptr = 0, tries = 0, items = [];
+
+function hear(msg){ $("hear").textContent = msg; }
+
+function norm(s){
+  s = cleanWord(s).toLowerCase();
+  if (lang === "ar"){
+    s = s.replace(/[\u064B-\u0652\u0670\u0640]/g,"")      // remove diacritics
+         .replace(/[أإآٱ]/g,"ا").replace(/ة/g,"ه").replace(/ى/g,"ي");
+  } else {
+    s = s.normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/’/g,"'");
+  }
+  return s;
+}
+function lev(a,b){
+  const d = Array.from({length:a.length+1},(_,i)=>[i]);
+  for (let j=1;j<=b.length;j++) d[0][j]=j;
+  for (let i=1;i<=a.length;i++) for (let j=1;j<=b.length;j++)
+    d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));
+  return d[a.length][b.length];
+}
+function same(h,w){ return h===w || (w.length>=5 && lev(h,w)<=1); }
+
+function mark(it, cls){ it.el.classList.remove("ok","bad","fixed"); it.el.classList.add(cls); }
+function setNext(){
+  document.querySelectorAll(".w.next").forEach(e=>e.classList.remove("next"));
+  if (listening && items[ptr]){
+    items[ptr].el.classList.add("next");
+    items[ptr].el.scrollIntoView({block:"center", behavior:"smooth"});
+  }
+}
+
+function recStart(){
+  const r = new SR(); rec = r;
+  r.lang = REC_LANG[lang]; r.continuous = true; r.interimResults = true;
+  r.onresult = e => {
+    let interim = "";
+    for (let i=e.resultIndex;i<e.results.length;i++){
+      const res = e.results[i];
+      if (res.isFinal) handleHeard(res[0].transcript); else interim += res[0].transcript;
+    }
+    if (interim) hear("👂 " + interim);
+  };
+  r.onerror = e => {
+    if (r !== rec) return;
+    if (e.error==="not-allowed" || e.error==="service-not-allowed"){ stopListen(); hear("🎤 Microphone is blocked. Allow the microphone for this page in Chrome."); }
+    else if (e.error==="network"){ stopListen(); hear("Listening needs an internet connection."); }
+  };
+  r.onend = () => {
+    if (r !== rec) return;
+    if (listening && !pausedForTTS) setTimeout(()=>{ if (r===rec && listening && !pausedForTTS) recStart(); }, 250);
+  };
+  try { r.start(); } catch(e){}
+}
+
+function handleHeard(text){
+  if (!listening || pausedForTTS) return;
+  hear("👂 " + text);
+  const heard = text.split(/\s+/).map(norm).filter(Boolean);
+  const fixes = []; let missed = false;
+  for (const h of heard){
+    if (ptr >= items.length) break;
+    const cur = items[ptr];
+    if (same(h, cur.n)){ mark(cur, tries===0 ? "ok" : "fixed"); ptr++; tries=0; missed=false; continue; }
+    // did the kid jump ahead? (current word said wrong or skipped)
+    let jump = 0;
+    for (let k=1;k<=3;k++){
+      const ahead = items[ptr+k];
+      if (ahead && (k===1 || ahead.n.length>=3) && same(h, ahead.n)){ jump = k; break; }
+    }
+    if (jump){
+      for (let k=0;k<jump;k++){ const it = items[ptr+k]; mark(it,"bad"); if (!fixes.includes(it)) fixes.push(it); }
+      mark(items[ptr+jump],"ok"); ptr += jump+1; tries=0; missed=false; continue;
+    }
+    // wrong attempt at the current word (count only once per chunk)
+    if (missed) continue;
+    missed = true; tries++;
+    mark(cur,"bad"); if (!fixes.includes(cur)) fixes.push(cur);
+    if (tries >= 2){ ptr++; tries=0; }   // after 2 tries, move on
+  }
+  setNext();
+  if (fixes.length) correct(fixes);
+  else if (ptr >= items.length) finish();
+}
+
+function correct(list){
+  pausedForTTS = true;
+  try { rec && rec.abort(); } catch(e){}
+  hear("🔊 Listen: " + list.map(i=>cleanWord(i.el.textContent)).join(", "));
+  let i = 0;
+  (function next(){
+    if (!listening) { pausedForTTS = false; return; }
+    if (i >= list.length){
+      pausedForTTS = false;
+      if (ptr >= items.length) return finish();
+      hear("🎤 Your turn, try again…");
+      return recStart();
+    }
+    const it = list[i++];
+    speak(cleanWord(it.el.textContent), it.el, () => setTimeout(next, 350));
+  })();
+}
+
+function finish(){
+  const ok = items.filter(i=>i.el.classList.contains("ok")).length;
+  stopListen();
+  hear(`🎉 Well done! ${ok} of ${items.length} words right first time. Tap the red words to practise.`);
+}
+
+function stopListen(){
+  if (!listening && !rec) return;
+  listening = false; pausedForTTS = false;
+  const r = rec; rec = null;
+  try { r && r.abort(); } catch(e){}
+  $("listenBtn").textContent = "🎤 I read, you listen";
+  document.querySelectorAll(".w.next").forEach(e=>e.classList.remove("next"));
+}
+
+function startListen(){
+  if (!SR){ hear("Listening needs Chrome on Android (with internet)."); return; }
+  speechSynthesis.cancel();
+  items = [...document.querySelectorAll(".w")].map(el=>({el, n:norm(el.textContent)})).filter(i=>i.n);
+  items.forEach(i=>i.el.classList.remove("ok","bad","fixed"));
+  ptr = 0; tries = 0; listening = true;
+  $("listenBtn").textContent = "⏹ Stop listening";
+  hear("🎤 Start reading out loud…");
+  setNext(); recStart();
+}
+$("listenBtn").onclick = () => listening ? (stopListen(), hear("")) : startListen();
+
+// ---- highlighter ----
+function paint(el, c){
+  // tapping a word with the same colour again removes it
+  el.style.background = (c && el.style.background && el.dataset.c === c) ? "" : c;
+  el.dataset.c = el.style.background ? c : "";
+}
+function setHl(on){
+  hlOn = on;
+  $("hlMode").textContent = "🖍 Highlighter: " + (on ? "ON" : "OFF");
+  $("hlMode").style.background = on ? "#ff9f1c" : "";
+  document.querySelectorAll(".dot").forEach(d=>d.classList.toggle("sel", on && d.dataset.c === hlColor));
+}
+$("hlMode").onclick = () => setHl(!hlOn);
+document.querySelectorAll(".dot").forEach(d=>{
+  d.addEventListener("pointerdown", e => e.preventDefault());
+  d.onclick = () => {
+    hlColor = d.dataset.c;
+    const s = window.getSelection();
+    if (s && s.rangeCount && !s.isCollapsed && $("text").contains(s.getRangeAt(0).commonAncestorContainer)){
+      const r = s.getRangeAt(0);
+      document.querySelectorAll(".w").forEach(w=>{
+        if (r.intersectsNode(w)){ w.style.background = hlColor; w.dataset.c = hlColor; }
+      });
+      s.removeAllRanges();            // colour the selected phrase, then deselect
+      setHl(hlOn);
+    } else setHl(true);
+  };
+});
+$("hlClear").onclick = () => document.querySelectorAll(".w").forEach(w=>{ w.style.background=""; w.dataset.c=""; });
+
+// ---- speed presets ----
+function markSpeed(){
+  document.querySelectorAll(".sp").forEach(b=>{
+    b.style.background = (parseFloat(b.dataset.r) === parseFloat($("rate").value)) ? "#ff9f1c" : "";
+  });
+}
+document.querySelectorAll(".sp").forEach(b=>b.onclick=()=>{ $("rate").value = b.dataset.r; markSpeed(); });
+$("rate").addEventListener("input", markSpeed);
+markSpeed();
+
+// ---- phrase selection ----
+let selText = "";
+const selBtn = $("listenSel");
+document.addEventListener("selectionchange", () => {
+  const s = window.getSelection();
+  const t = s ? s.toString().replace(/\s+/g," ").trim() : "";
+  const inside = s && s.rangeCount && $("text").contains(s.getRangeAt(0).commonAncestorContainer);
+  if (t && inside){ selText = t; selBtn.style.display = "block"; }
+  else if (!t){ selBtn.style.display = "none"; }
+});
+selBtn.addEventListener("pointerdown", e => e.preventDefault());
+selBtn.addEventListener("click", () => {
+  if (!selText) return;
+  speak(selText.replace(/^[^\p{L}\p{M}\p{N}]+|[^\p{L}\p{M}\p{N}]+$/gu,""), null);
+});
+
+fillStories();
+checkVoice();
+</script>
+</body>
+</html>
