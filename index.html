@@ -52,7 +52,10 @@
     <button class="tab" data-l="fr">Français</button>
     <button class="tab" data-l="ar">العربية</button>
   </div>
-  <select id="story"></select>
+  <div style="display:flex;gap:8px;align-items:flex-start">
+    <select id="story" style="flex:1"></select>
+    <button class="btn gray" id="delCustom" style="display:none;padding:12px 14px" title="Delete this text">🗑</button>
+  </div>
   <div class="bar" id="hlbar">
     <button class="btn gray" id="hlMode">🖍 Highlighter: OFF</button>
     <button class="dot" data-c="#fde047" style="background:#fde047"></button>
@@ -79,9 +82,13 @@
   <div id="hear"></div>
   <div class="warn" id="warn"></div>
   <details>
-    <summary class="big">➕ Use my own text</summary>
+    <summary class="big">➕ Add my own text</summary>
+    <input id="customTitle" placeholder="Title…" style="width:100%;padding:10px;border-radius:12px;border:2px solid #ddd;margin-top:8px;font:inherit">
     <textarea id="custom" placeholder="Paste or type a text here…"></textarea>
-    <button class="btn" id="useCustom" style="margin-top:8px">Use this text</button>
+    <div class="bar">
+      <button class="btn" id="useCustom">💾 Save text</button>
+    </div>
+    <div class="hint">Saved texts are added to the story list of the language tab that is open, and stay on this phone.</div>
   </details>
   <p class="hint">Tip: tap a word to hear it. To hear a phrase, long-press a word, drag the handles over the phrase, then press the red 🔊 button.</p>
   <button id="listenSel">🔊 Listen to selection</button>
@@ -191,10 +198,34 @@ function readAll(){
   })();
 }
 
-function fillStories(){
+// ---- saved texts (kept in this browser, per language) ----
+function loadSaved(){
+  try { return JSON.parse(localStorage.getItem("kr_texts_" + lang)) || []; } catch(e){ return []; }
+}
+function storeSaved(list){
+  try { localStorage.setItem("kr_texts_" + lang, JSON.stringify(list)); return true; } catch(e){ return false; }
+}
+function storyAt(v){
+  const [k, i] = [v[0], +v.slice(1)];
+  return k === "s" ? loadSaved()[i] : STORIES[lang][i];
+}
+function fillStories(selectValue){
   const s = $("story"); s.innerHTML = "";
-  STORIES[lang].forEach((st,i)=>{ const o=document.createElement("option"); o.value=i; o.textContent=st.t; s.appendChild(o); });
-  current = STORIES[lang][0].x; render();
+  const add = (parent, v, t) => { const o=document.createElement("option"); o.value=v; o.textContent=t; parent.appendChild(o); };
+  STORIES[lang].forEach((st,i)=> add(s, "b"+i, st.t));
+  const saved = loadSaved();
+  if (saved.length){
+    const g = document.createElement("optgroup"); g.label = "⭐ My texts";
+    saved.forEach((st,i)=> add(g, "s"+i, st.t));
+    s.appendChild(g);
+  }
+  s.value = selectValue && storyAt(selectValue) ? selectValue : "b0";
+  showStory();
+}
+function showStory(){
+  const v = $("story").value, st = storyAt(v);
+  current = st.x; render();
+  $("delCustom").style.display = v[0] === "s" ? "" : "none";
 }
 
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{
@@ -203,10 +234,30 @@ document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{
   document.documentElement.lang = lang;
   speechSynthesis.cancel(); fillStories(); checkVoice();
 });
-$("story").onchange = e => { current = STORIES[lang][e.target.value].x; render(); };
+$("story").onchange = showStory;
 $("readAll").onclick = readAll;
 $("stop").onclick = () => speechSynthesis.cancel();
-$("useCustom").onclick = () => { const t = $("custom").value.trim(); if (t){ current = t; render(); } };
+$("useCustom").onclick = () => {
+  const x = $("custom").value.trim();
+  let t = $("customTitle").value.trim();
+  if (!x){ $("custom").focus(); return; }
+  if (!t) t = x.split(/\s+/).slice(0,4).join(" ") + "…";
+  const list = loadSaved();
+  const same = list.findIndex(s => s.t === t);     // same title → update it
+  if (same >= 0) list[same] = {t, x}; else list.push({t, x});
+  if (!storeSaved(list)){ hear("⚠️ Could not save on this phone (private mode?). The text is shown but not saved."); current = x; render(); return; }
+  $("custom").value = ""; $("customTitle").value = "";
+  fillStories("s" + (same >= 0 ? same : list.length - 1));
+  hear("✅ Saved: " + t);
+  $("text").scrollIntoView({behavior:"smooth"});
+};
+$("delCustom").onclick = () => {
+  const v = $("story").value; if (v[0] !== "s") return;
+  const list = loadSaved(), st = list[+v.slice(1)];
+  if (!st || !confirm('Delete "' + st.t + '"?')) return;
+  list.splice(+v.slice(1), 1); storeSaved(list);
+  fillStories(); hear("🗑 Deleted: " + st.t);
+};
 
 // ---- listen while the kid reads, and correct wrong words ----
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -396,6 +447,20 @@ selBtn.addEventListener("click", () => {
   if (!selText) return;
   speak(selText.replace(/^[^\p{L}\p{M}\p{N}]+|[^\p{L}\p{M}\p{N}]+$/gu,""), null);
 });
+
+// ---- keep the screen on while the app is open ----
+let wakeLock = null;
+async function keepAwake(){
+  try {
+    if ("wakeLock" in navigator && document.visibilityState === "visible" && !wakeLock){
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    }
+  } catch(e){ wakeLock = null; }
+}
+document.addEventListener("visibilitychange", keepAwake);   // re-lock when coming back to the app
+document.addEventListener("click", keepAwake);              // some phones need a tap first
+keepAwake();
 
 fillStories();
 checkVoice();
