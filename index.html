@@ -17,6 +17,7 @@
   select,textarea,button{font:inherit}
   select{width:100%;padding:12px;border-radius:12px;border:2px solid #ddd;background:#fff;margin-bottom:10px}
   .card{background:var(--card);border-radius:18px;padding:18px;box-shadow:0 3px 10px rgba(0,0,0,.08);line-height:2.1;font-size:1.6rem}
+  #text{white-space:pre-wrap}
   .card.rtl{direction:rtl;text-align:right;font-size:1.9rem;line-height:2.4}
   .w{display:inline-block;padding:0 4px;border-radius:8px;cursor:pointer}
   .w:active,.w.say{background:var(--hl)}
@@ -89,6 +90,12 @@
       <button class="btn" id="useCustom">💾 Save text</button>
     </div>
     <div class="hint">Saved texts are added to the story list of the language tab that is open, and stay on this phone.</div>
+    <div class="bar">
+      <button class="btn gray" id="exportTexts">📤 Export all texts</button>
+      <button class="btn gray" id="importTexts">📥 Import texts</button>
+      <input type="file" id="importFile" accept=".json,application/json" hidden>
+    </div>
+    <div class="hint">To put your texts in the app for every phone: Export → upload <b>texts.json</b> to GitHub next to index.html.</div>
   </details>
   <p class="hint">Tip: tap a word to hear it. To hear a phrase, long-press a word, drag the handles over the phrase, then press the red 🔊 button.</p>
   <button id="listenSel">🔊 Listen to selection</button>
@@ -165,17 +172,35 @@ function cleanWord(s){
   return s.replace(/^[^\p{L}\p{M}\p{N}]+|[^\p{L}\p{M}\p{N}]+$/gu,"");
 }
 
+// pause (ms) after a word, from the punctuation that ends it — EN / FR / AR
+function pauseAfter(tok){
+  const end = tok.replace(/[»"”’')\]]+$/,"");
+  if (/(\.\.\.|…)$/.test(end)) return 800;
+  if (/[.!?؟]$/.test(end)) return 700;
+  if (/[;:؛]$/.test(end)) return 450;
+  if (/[,،\-–—]$/.test(end)) return 300;
+  return 60;
+}
+
 function render(){
   const box = $("text");
   box.className = "card" + (lang==="ar" ? " rtl" : "");
   box.dir = lang==="ar" ? "rtl" : "ltr";
   stopListen();
   box.innerHTML = "";
-  current.split(/(\s+)/).forEach(tok=>{
+  let lastWord = null;
+  current.replace(/\r\n?/g,"\n").trim().split(/(\s+)/).forEach(tok=>{
     if (!tok) return;
-    if (/^\s+$/.test(tok)){ box.appendChild(document.createTextNode(tok)); return; }
+    if (/^\s+$/.test(tok)){
+      // keep spaces and line breaks exactly as written
+      box.appendChild(document.createTextNode(tok));
+      if (lastWord && tok.includes("\n")) lastWord.dataset.pause = Math.max(+lastWord.dataset.pause, /\n\s*\n/.test(tok) ? 1100 : 800);
+      return;
+    }
     const sp = document.createElement("span");
     sp.className = "w"; sp.textContent = tok;
+    sp.dataset.pause = pauseAfter(tok);
+    lastWord = sp;
     sp.onclick = () => {
       if (hlOn){ paint(sp, hlColor); return; }
       const w = cleanWord(tok); if (w) speak(w, sp);
@@ -194,7 +219,9 @@ function readAll(){
     if (stopped || i >= words.length) return;
     const el = words[i++], w = cleanWord(el.textContent);
     if (!w) return next();
-    speak(w, el, next);
+    // slower speed = slightly longer pauses at punctuation
+    const wait = (+el.dataset.pause || 60) / Math.max(parseFloat($("rate").value), 0.4) * 0.7;
+    speak(w, el, () => setTimeout(next, wait));
   })();
 }
 
@@ -205,14 +232,43 @@ function loadSaved(){
 function storeSaved(list){
   try { localStorage.setItem("kr_texts_" + lang, JSON.stringify(list)); return true; } catch(e){ return false; }
 }
+// ---- library: texts.json published next to index.html (same for every phone) ----
+let LIBRARY = {en:[], fr:[], ar:[]};
+const sameText = (a,b) => a.t === b.t && a.x.trim() === b.x.trim();
+function libList(){ return LIBRARY[lang] || []; }
+async function loadLibrary(){
+  try {
+    const r = await fetch("texts.json?v=" + Date.now(), {cache:"no-store"});
+    if (!r.ok) return;
+    const j = await r.json();
+    for (const l of ["en","fr","ar"]) LIBRARY[l] = Array.isArray(j[l]) ? j[l].filter(s=>s && s.t && s.x) : [];
+    // a text now in the library no longer needs its private copy
+    for (const l of ["en","fr","ar"]){
+      const k = "kr_texts_" + l;
+      try {
+        const mine = JSON.parse(localStorage.getItem(k)) || [];
+        const left = mine.filter(m => !LIBRARY[l].some(b => sameText(m,b)));
+        if (left.length !== mine.length) localStorage.setItem(k, JSON.stringify(left));
+      } catch(e){}
+    }
+    const keep = $("story").value;
+    fillStories(keep);
+  } catch(e){ /* no texts.json yet, or opened as a file */ }
+}
+
 function storyAt(v){
   const [k, i] = [v[0], +v.slice(1)];
-  return k === "s" ? loadSaved()[i] : STORIES[lang][i];
+  return k === "s" ? loadSaved()[i] : k === "l" ? libList()[i] : STORIES[lang][i];
 }
 function fillStories(selectValue){
   const s = $("story"); s.innerHTML = "";
   const add = (parent, v, t) => { const o=document.createElement("option"); o.value=v; o.textContent=t; parent.appendChild(o); };
   STORIES[lang].forEach((st,i)=> add(s, "b"+i, st.t));
+  if (libList().length){
+    const g = document.createElement("optgroup"); g.label = "📚 Library";
+    libList().forEach((st,i)=> add(g, "l"+i, st.t));
+    s.appendChild(g);
+  }
   const saved = loadSaved();
   if (saved.length){
     const g = document.createElement("optgroup"); g.label = "⭐ My texts";
@@ -257,6 +313,54 @@ $("delCustom").onclick = () => {
   if (!st || !confirm('Delete "' + st.t + '"?')) return;
   list.splice(+v.slice(1), 1); storeSaved(list);
   fillStories(); hear("🗑 Deleted: " + st.t);
+};
+
+// ---- export all texts as texts.json (to upload to GitHub), import one back ----
+function allTexts(){
+  const out = {};
+  for (const l of ["en","fr","ar"]){
+    let mine = [];
+    try { mine = JSON.parse(localStorage.getItem("kr_texts_" + l)) || []; } catch(e){}
+    const list = (LIBRARY[l] || []).map(s=>({t:s.t, x:s.x}));
+    for (const m of mine){
+      const i = list.findIndex(s => s.t === m.t);
+      if (i >= 0) list[i] = {t:m.t, x:m.x}; else list.push({t:m.t, x:m.x});   // newer private version wins
+    }
+    out[l] = list;
+  }
+  return out;
+}
+$("exportTexts").onclick = () => {
+  const data = allTexts();
+  const n = data.en.length + data.fr.length + data.ar.length;
+  if (!n){ hear("There are no texts to export yet."); return; }
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "texts.json";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+  hear(`📤 texts.json downloaded (${n} texts). Upload it to GitHub next to index.html.`);
+};
+$("importTexts").onclick = () => $("importFile").click();
+$("importFile").onchange = async e => {
+  const f = e.target.files[0]; e.target.value = "";
+  if (!f) return;
+  try {
+    const j = JSON.parse(await f.text()); let n = 0;
+    for (const l of ["en","fr","ar"]){
+      if (!Array.isArray(j[l])) continue;
+      const k = "kr_texts_" + l;
+      const mine = JSON.parse(localStorage.getItem(k) || "[]");
+      for (const s of j[l]){
+        if (!s || !s.t || !s.x || (LIBRARY[l]||[]).some(b=>sameText(b,s))) continue;
+        const i = mine.findIndex(m => m.t === s.t);
+        if (i >= 0) mine[i] = {t:s.t, x:s.x}; else mine.push({t:s.t, x:s.x});
+        n++;
+      }
+      localStorage.setItem(k, JSON.stringify(mine));
+    }
+    fillStories(); hear(`📥 Imported ${n} texts.`);
+  } catch(err){ hear("⚠️ This file is not a Kids Reader texts file."); }
 };
 
 // ---- listen while the kid reads, and correct wrong words ----
@@ -463,6 +567,7 @@ document.addEventListener("click", keepAwake);              // some phones need 
 keepAwake();
 
 fillStories();
+loadLibrary();
 checkVoice();
 </script>
 </body>
